@@ -165,6 +165,8 @@ int main(int argc, char const *argv[]) {
           goto TERMINATE;
         }
         //int CPXnewcols (env, lp,n*m, double *coeff, double *lb,double *ub, char *ctype, char **colname)
+//cplex
+
 
 
 
