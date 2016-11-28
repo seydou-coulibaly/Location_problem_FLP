@@ -2,11 +2,10 @@
    Format des instances :
      number of rows (m), number of columns (n)
      coût d'affectation c(ij),j=1,...,m; i=1,...n
+     Demande D(j), ,j=1,...,m
      Coût d'installation ou d'ouverture F(i), ,i=1,...,n
      Capacité des sites B(i), ,i=1,...,n
-     Demande D(j), ,j=1,...,m
-
-*/
+     */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,17 +14,20 @@
 #include <string.h>
 #include <ilcplex/cplex.h>
 #include "structure.h"
+#include "grasp.h"
 
 /*------------------------------------------------------------
 #  Prototype
 --------------------------------------------------------------
 */
 void liberation (int **X,int n);
+int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m);
 
 /*------------------------------------------------------------
 #  Main
 --------------------------------------------------------------
 */
+
 int main(int argc, char const *argv[]) {
   int n=0,m=0;
   FILE* fichier = NULL;
@@ -69,7 +71,7 @@ int main(int argc, char const *argv[]) {
            exit(0);
          }
        }
-       initialiserMatrice(C,m,n,0);
+       initialiser_matrice(C,m,n,0);
        for(int i=0 ; i < n ; i++){
           X[i] = malloc(m * sizeof(**X) );
           if(X[i] == NULL){
@@ -77,7 +79,7 @@ int main(int argc, char const *argv[]) {
             exit(0);
           }
         }
-        initialiserMatrice(X,n,m,0);
+        initialiser_matrice(X,n,m,0);
         //variable binaire indiquant l'ouverture d'un site
         Y = malloc(n * sizeof(int));
         //coût d'installation des sites
@@ -90,10 +92,10 @@ int main(int argc, char const *argv[]) {
           printf("ERREUR ALLOCATION\n");
           exit(1);
         }
-        initialiser(Y,n,0);
-        initialiser(F,n,0);
-        initialiser(B,n,0);
-        initialiser(D,m,0);
+        initialiser_tab_int(Y,n,0);
+        initialiser_tab_int(F,n,0);
+        initialiser_tab_int(B,n,0);
+        initialiser_tab_int(D,m,0);
 
         //Tout est alloué donc remplissage de tableau
         float tmp = 0;
@@ -105,7 +107,7 @@ int main(int argc, char const *argv[]) {
             C[j][i] = (int) tmp;
           }
         }
-        afficheMatrice(C,m,n);
+        affiche_matrice(C,m,n);
         printf("\n");
         /* lecture vecteur demande */
         for (int j=0; j< m; j++){
@@ -113,7 +115,7 @@ int main(int argc, char const *argv[]) {
           D[j] = (int) tmp;
         }
         printf("\n Demande :");
-        afficheTableau(D,m);
+        affiche_tab_int(D,m);
         printf("\n");
         /* lecture vecteur cout installation des sites */
         for (int i=0; i< n; i++){
@@ -121,7 +123,7 @@ int main(int argc, char const *argv[]) {
           F[i] = (int) tmp;
         }
         printf("\n installation :");
-        afficheTableau(F,n);
+        affiche_tab_int(F,n);
         printf("\n");
         /* lecture vecteur capacite des sites */
         for (int i=0; i< n; i++){
@@ -129,15 +131,43 @@ int main(int argc, char const *argv[]) {
           B[i] = (int) tmp;
         }
         printf("\n capacite :\n");
-        afficheTableau(B,n);
+        affiche_tab_int(B,n);
         printf("\n\n  ");
 
         fclose(fichier);
         //         =============================  DEBUT EXECUTION PROGRAMME =====================================
 
-        int status; /* contient le type d'erreur rencontré en cas de problème */
+
+
+        int iteration = 1;
+        /* Borne primale : heuristique
+        *  n : le nombre de site
+        *  m : le nombre de clients
+        *  iteration : le nombre d'iteration grasp
+        */
+        methodeGrasp(C,X,Y,F,B,D,n,m,iteration);
+        int z = evaluer_fonction(X,C,F,Y,n,m);
+        printf(" Z vaut %d\n",z);
+        printf("\n Les sites ouverts\n");
+        for (int i = 0; i < n; i++) {
+          printf("%d\t",i+1);
+        }
+        printf("\n Les clients fournis\n");
+        for (int i = 0; i < n; i++) {
+          for (int j = 0; j < m; j++) {
+            if (X[i][j] == 1) {
+              printf("%d\t",j+1);
+            }
+          }
+        }
+
+        /* Borne Duale : methode exacte
+        */
+
+        /*
+        int status; /* contient le type d'erreur rencontré en cas de problème
         CPXENVptr env = CPXopenCPLEX (&status); /* ouvre un environnement Cplex */
-        /*en cas d'erreur...*/
+        /*en cas d'erreur...
         if ( env == NULL ) {
         char  errmsg[CPXMESSAGEBUFSIZE];
         fprintf (stderr, "Could not open CPLEX environment.\n");
@@ -145,55 +175,66 @@ int main(int argc, char const *argv[]) {
         fprintf (stderr, "%s", errmsg);
         goto TERMINATE;
         }
-        /* Turn on output to the screen */
+        // Turn on output to the screen
         status = CPXsetintparam (env, CPXPARAM_ScreenOutput, CPX_ON);
         if ( status ) {
             fprintf (stderr,"Failure to turn on screen indicator, error %d.\n", status);
             goto TERMINATE;
         }
-        /* Turn on data checking */
+        // Turn on data checking
         status = CPXsetintparam (env, CPXPARAM_Read_DataCheck, CPX_ON);
         if ( status ) {
           fprintf (stderr,"Failure to turn on data checking, error %d.\n", status);
           goto TERMINATE;
         }
 
-        CPXLPptr lp = CPXcreateprob (env, &status, "SSCFLP"); /*crée un PL vide*/
-        /* traiter l'erreur...*/
+        //crée un PL vide
+        CPXLPptr lp = CPXcreateprob (env, &status, "SSCFLP");
+        // traiter l'erreur...
         if ( lp == NULL ) {
           fprintf (stderr, "Failed to create LP.\n");
           goto TERMINATE;
         }
         //int CPXnewcols (env, lp,n*m, double *coeff, double *lb,double *ub, char *ctype, char **colname)
-//cplex
+        //cplex
+
+
+
+                TERMINATE:
+                  //libration de tous les allocations
+                  if ( lp != NULL ) {
+                    status = CPXfreeprob (env, &lp);
+                    if ( status ) {
+                      fprintf (stderr, "CPXfreeprob failed, error code %d.\n", status);
+                    }
+                  }
+                  // Free up the CPLEX environment, if necessary
+                  if ( env != NULL ) {
+                    status = CPXcloseCPLEX (&env);
+                    /* Note that CPXcloseCPLEX produces no output,
+                    so the only way to see the cause of the error is to use
+                    CPXgeterrorstring.  For other CPLEX routines, the errors will
+                    be seen if the CPXPARAM_ScreenOutput indicator is set to CPX_ON. */
+            /*        if ( status ){
+                      char  errmsg[CPXMESSAGEBUFSIZE];
+                      fprintf (stderr, "Could not close CPLEX environment.\n");
+                      CPXgeterrorstring (env, status, errmsg);
+                      fprintf (stderr, "%s", errmsg);
+                      printf("ERROR CPLEX ENVIRONNEMENT LIBERATION\n");
+                    }
+                  }
+
+        */
 
 
 
 
 
-        TERMINATE:
-          //libration de tous les allocations
-          if ( lp != NULL ) {
-            status = CPXfreeprob (env, &lp);
-            if ( status ) {
-              fprintf (stderr, "CPXfreeprob failed, error code %d.\n", status);
-            }
-          }
-          /* Free up the CPLEX environment, if necessary */
-          if ( env != NULL ) {
-            status = CPXcloseCPLEX (&env);
-            /* Note that CPXcloseCPLEX produces no output,
-            so the only way to see the cause of the error is to use
-            CPXgeterrorstring.  For other CPLEX routines, the errors will
-            be seen if the CPXPARAM_ScreenOutput indicator is set to CPX_ON. */
-            if ( status ){
-              char  errmsg[CPXMESSAGEBUFSIZE];
-              fprintf (stderr, "Could not close CPLEX environment.\n");
-              CPXgeterrorstring (env, status, errmsg);
-              fprintf (stderr, "%s", errmsg);
-              printf("ERROR CPLEX ENVIRONNEMENT LIBERATION\n");
-            }
-          }
+
+
+
+
+
 
         //FILE* f = popen("gnuplot -persist", "w");
     /*
@@ -238,4 +279,21 @@ void liberation (int **ptr,int n){
     }
      free (ptr);
      //*ptr = NULL;
+}
+int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m){
+  int retour = 0;
+  for (int i = 0; i < n; i++) {
+    if (Y[i] == 1) {
+      retour = retour + F[i];
+    }
+  }
+  for (int j = 0; j < m; j++) {
+    for (int i = 0; i < n; i++) {
+      if (X[i][j] == 1) {
+        retour = retour + C[j][i];
+        break;
+      }
+    }
+  }
+  return retour;
 }
