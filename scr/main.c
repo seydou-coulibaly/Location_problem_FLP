@@ -22,6 +22,9 @@
 */
 void liberation (int **X,int n);
 int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m);
+int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int n, int m);
+int varindex (int i, int j);
+void free_and_null (char **ptr);
 
 /*------------------------------------------------------------
 #  Main
@@ -44,6 +47,8 @@ int main(int argc, char const *argv[]) {
     int *F;
     int *B;
     int *D;
+    int borne_primale;
+    int borne_duale;
     // Ouverture du fichier d'entree/sortie
     //La taille du chemin vaut au plus 250 caractères
     char chemin[250] = "../instances/";
@@ -146,8 +151,8 @@ int main(int argc, char const *argv[]) {
         *  iteration : le nombre d'iteration grasp
         */
         methodeGrasp(C,X,Y,F,B,D,n,m,iteration);
-        int z = evaluer_fonction(X,C,F,Y,n,m);
-        printf(" Z vaut %d\n",z);
+        borne_primale = evaluer_fonction(X,C,F,Y,n,m);
+        printf(" LA BORNE PRIMALE = %d\n",borne_primale);
         printf("\n Les sites ouverts\n");
         for (int i = 0; i < n; i++) {
           printf("%d\t",i+1);
@@ -160,14 +165,23 @@ int main(int argc, char const *argv[]) {
             }
           }
         }
+        printf("\n");
 
         /* Borne Duale : methode exacte
         */
 
-        /*
-        int status; /* contient le type d'erreur rencontré en cas de problème
-        CPXENVptr env = CPXopenCPLEX (&status); /* ouvre un environnement Cplex */
-        /*en cas d'erreur...
+        /* Declare variables and arrays where we will store the
+        optimization results including the status, objective value,
+        and variable values.
+         */
+
+        int       solstat;
+        double    objval;
+        int       colcnt = 0;
+        double    *x = NULL;
+        int status;
+        CPXENVptr env = CPXopenCPLEX (&status); // ouvre un environnement Cplex
+
         if ( env == NULL ) {
         char  errmsg[CPXMESSAGEBUFSIZE];
         fprintf (stderr, "Could not open CPLEX environment.\n");
@@ -195,42 +209,67 @@ int main(int argc, char const *argv[]) {
           fprintf (stderr, "Failed to create LP.\n");
           goto TERMINATE;
         }
+        // Build the model
+        status = buildmodel (env, lp, C, F, D, B, n, m);
+        if ( status ) {
+          fprintf (stderr, "Failed to build model.\n");
+           goto TERMINATE;
+         }
+
+         // Write a copy of the problem to a file.
+         status = CPXwriteprob (env, lp, "SSCFLP.lp", NULL);
+         if ( status ) {
+           fprintf (stderr, "Failed to write LP to disk.\n");
+           goto TERMINATE;
+        }
+        // Optimize the problem and obtain solution.
+        status = CPXmipopt (env, lp);
+        if ( status ) {
+          fprintf (stderr, "Failed to optimize MIP.\n");
+          goto TERMINATE;
+        }
+        solstat = CPXgetstat (env, lp);
+        // Write solution status, objective and solution vector to the screen.
+        printf ("\nSolution status = %d\n", solstat);
+        status = CPXgetobjval (env, lp, &objval);
+        if ( status ) {
+          fprintf (stderr,"No MIP objective value available.  Exiting...\n");
+          goto TERMINATE;
+        }
+        printf ("Solution value (min cout) = %f\n\n", objval);
+
+
         //int CPXnewcols (env, lp,n*m, double *coeff, double *lb,double *ub, char *ctype, char **colname)
-        //cplex
+        printf("POPULATE YOUR DATA IN CPLEX \n");
 
 
-
-                TERMINATE:
-                  //libration de tous les allocations
-                  if ( lp != NULL ) {
-                    status = CPXfreeprob (env, &lp);
-                    if ( status ) {
-                      fprintf (stderr, "CPXfreeprob failed, error code %d.\n", status);
-                    }
-                  }
-                  // Free up the CPLEX environment, if necessary
-                  if ( env != NULL ) {
-                    status = CPXcloseCPLEX (&env);
-                    /* Note that CPXcloseCPLEX produces no output,
-                    so the only way to see the cause of the error is to use
-                    CPXgeterrorstring.  For other CPLEX routines, the errors will
-                    be seen if the CPXPARAM_ScreenOutput indicator is set to CPX_ON. */
-            /*        if ( status ){
-                      char  errmsg[CPXMESSAGEBUFSIZE];
-                      fprintf (stderr, "Could not close CPLEX environment.\n");
-                      CPXgeterrorstring (env, status, errmsg);
-                      fprintf (stderr, "%s", errmsg);
-                      printf("ERROR CPLEX ENVIRONNEMENT LIBERATION\n");
-                    }
-                  }
-
-        */
+        TERMINATE:
+          //libration de tous les allocations
+          if ( lp != NULL ) {
+            status = CPXfreeprob (env, &lp);
+            if ( status ) {
+              fprintf (stderr, "CPXfreeprob failed, error code %d.\n", status);
+            }
+          }
+          // Free up the CPLEX environment, if necessary
+          if ( env != NULL ) {
+            status = CPXcloseCPLEX (&env);
+            if ( status ){
+              char  errmsg[CPXMESSAGEBUFSIZE];
+              fprintf (stderr, "Could not close CPLEX environment.\n");
+              CPXgeterrorstring (env, status, errmsg);
+              fprintf (stderr, "%s", errmsg);
+              printf("ERROR CPLEX ENVIRONNEMENT LIBERATION\n");
+            }
+          }
 
 
+          /**
+          * Branch and bound algorithme
+          */
 
-
-
-
+          //borne_duale =
+          //branch_and_bound(X,Y,F,C,B,D,borne_duale,borne_primale)
 
 
 
@@ -296,4 +335,95 @@ int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m){
     }
   }
   return retour;
+}
+/*
+  Build model using indicator constraints and
+  semi-continuous variables
+*/
+int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int n, int m){
+
+   int colcnt = 2 * m * n;
+   int     *obj     = NULL;
+   int     *lb      = NULL;
+   int     *ub      = NULL;
+   char    *ctype   = NULL;
+   int     *rmatind = NULL;
+   int     *rmatval = NULL;
+   int     *rmatbeg = NULL;
+   int         *rhs = NULL;
+   int        *sense = NULL;
+   int    indicator;
+   int    status = 0;
+
+   /* Allocate colcnt-sized arrays */
+
+   obj     = (int *) malloc (colcnt * sizeof(int));
+   lb      = (double *) malloc (colcnt * sizeof(int));
+   ub      = (double *) malloc (colcnt * sizeof(int));
+   ctype   = (char *)   malloc (colcnt * sizeof(char));
+   rmatind = (int * )   malloc (colcnt * sizeof(int));
+   rmatval = (double *) malloc (colcnt * sizeof(double));
+
+   /*
+   int     *rmatbeg = NULL;
+   int     *rmatbeg = NULL;
+   int         *rhs = NULL;
+   int        *sense = NULL;
+   */
+
+   if ( obj     == NULL ||
+        lb      == NULL ||
+        ub      == NULL ||
+        ctype   == NULL ||
+        rmatind == NULL ||
+        rmatval == NULL   ) {
+      fprintf (stderr, "Could not allocate colcnt arrays\n");
+      status = CPXERR_NO_MEMORY;
+      goto TERMINATE;
+   }
+
+   for (int i = 0; i < n; i++) {
+      for (int j = 0; j < m; j++) {
+
+         /* capacite d'affectation entre i et j */
+
+         obj[varindex(i,j,0)]    = C[j][i];
+         lb[varindex (i,j,0)]    = 0;
+         ub[varindex (i,j,0)]    = 1;
+         ctype[varindex (i,j,0)] = 'B';
+
+         obj[varindex (i,j,1)]   = 0;
+         lb[varindex (i,j,1)]    = 0;
+         ub[varindex (i,j,1)]    = 1;
+         ctype[varindex (i,j,1)] = 'B';
+      }
+   }
+
+   status = CPXnewcols (env, lp, colcnt, obj, lb, ub, ctype, NULL);
+   if ( status ) {
+      fprintf (stderr, "Could not add new columns.\n");
+      goto TERMINATE;
+   }
+
+
+   TERMINATE:
+    free_and_null ((char **)&obj);
+    free_and_null ((char **)&lb);
+    free_and_null ((char **)&ub);
+    free_and_null ((char **)&ctype);
+    free_and_null ((char **)&rmatind);
+    free_and_null ((char **)&rmatval);
+
+   return (status);
+
+}
+
+int varindex (int i, int j){
+   return (2 * j * i + 2 * j);
+}
+void free_and_null (char **ptr){
+   if ( *ptr != NULL ) {
+      free (*ptr);
+      *ptr = NULL;
+   }
 }
