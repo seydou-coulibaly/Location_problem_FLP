@@ -23,7 +23,7 @@
 void liberation (int **X,int n);
 int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m);
 int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int n, int m);
-int varindex (int i, int j);
+int varindex (int i, int j, int m);
 void free_and_null (char **ptr);
 
 /*------------------------------------------------------------
@@ -209,13 +209,13 @@ int main(int argc, char const *argv[]) {
           fprintf (stderr, "Failed to create LP.\n");
           goto TERMINATE;
         }
+        printf("POPULATE YOUR DATA IN CPLEX \n");
         // Build the model
         status = buildmodel (env, lp, C, F, D, B, n, m);
         if ( status ) {
           fprintf (stderr, "Failed to build model.\n");
-           goto TERMINATE;
-         }
-
+          goto TERMINATE;
+        }
          // Write a copy of the problem to a file.
          status = CPXwriteprob (env, lp, "SSCFLP.lp", NULL);
          if ( status ) {
@@ -238,11 +238,6 @@ int main(int argc, char const *argv[]) {
         }
         printf ("Solution value (min cout) = %f\n\n", objval);
 
-
-        //int CPXnewcols (env, lp,n*m, double *coeff, double *lb,double *ub, char *ctype, char **colname)
-        printf("POPULATE YOUR DATA IN CPLEX \n");
-
-
         TERMINATE:
           //libration de tous les allocations
           if ( lp != NULL ) {
@@ -263,12 +258,11 @@ int main(int argc, char const *argv[]) {
             }
           }
 
-
           /**
           * Branch and bound algorithme
           */
 
-          //borne_duale =
+          borne_duale = objval;
           //branch_and_bound(X,Y,F,C,B,D,borne_duale,borne_primale)
 
 
@@ -342,61 +336,67 @@ int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m){
 */
 int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int n, int m){
 
-   int colcnt = 2 * m * n;
-   int     *obj     = NULL;
-   int     *lb      = NULL;
-   int     *ub      = NULL;
-   char    *ctype   = NULL;
-   int     *rmatind = NULL;
-   int     *rmatval = NULL;
-   int     *rmatbeg = NULL;
-   int         *rhs = NULL;
-   int        *sense = NULL;
-   int    indicator;
+   int colcnt = n + (m * n);
+   double *obj     = NULL;
+   double *lb      = NULL;
+   double *ub      = NULL;
+   char   *ctype   = NULL;
+   int    *rmatind = NULL;
+   double *rmatval = NULL;
+   int    *rmatbeg = NULL;
+   double     *rhs = NULL;
+   char     *sense = NULL;
    int    status = 0;
 
    /* Allocate colcnt-sized arrays */
-
-   obj     = (int *) malloc (colcnt * sizeof(int));
-   lb      = (double *) malloc (colcnt * sizeof(int));
-   ub      = (double *) malloc (colcnt * sizeof(int));
+   obj     = (double *) malloc (colcnt * sizeof(double));
+   lb      = (double *) malloc (colcnt * sizeof(double));
+   ub      = (double *) malloc (colcnt * sizeof(double));
    ctype   = (char *)   malloc (colcnt * sizeof(char));
-   rmatind = (int * )   malloc (colcnt * sizeof(int));
-   rmatval = (double *) malloc (colcnt * sizeof(double));
-
-   /*
-   int     *rmatbeg = NULL;
-   int     *rmatbeg = NULL;
-   int         *rhs = NULL;
-   int        *sense = NULL;
-   */
+   rmatind = (int * )   malloc ((n * m) * sizeof(int));
+   rmatval = (double *) malloc ((n * m) * sizeof(double));
+   rhs     = (double *) malloc (m * sizeof(double));
+   rmatbeg = (int    *) malloc (m * sizeof(int));
+   sense   = (char *) malloc (m * sizeof(char));
 
    if ( obj     == NULL ||
         lb      == NULL ||
         ub      == NULL ||
         ctype   == NULL ||
         rmatind == NULL ||
-        rmatval == NULL   ) {
+        rmatval == NULL ||
+        rmatbeg == NULL ||
+        sense   == NULL ||
+        rhs     == NULL   ) {
       fprintf (stderr, "Could not allocate colcnt arrays\n");
       status = CPXERR_NO_MEMORY;
       goto TERMINATE;
    }
-
-   for (int i = 0; i < n; i++) {
-      for (int j = 0; j < m; j++) {
-
-         /* capacite d'affectation entre i et j */
-
-         obj[varindex(i,j,0)]    = C[j][i];
-         lb[varindex (i,j,0)]    = 0;
-         ub[varindex (i,j,0)]    = 1;
-         ctype[varindex (i,j,0)] = 'B';
-
-         obj[varindex (i,j,1)]   = 0;
-         lb[varindex (i,j,1)]    = 0;
-         ub[varindex (i,j,1)]    = 1;
-         ctype[varindex (i,j,1)] = 'B';
-      }
+   initialiser_tab_double(obj,colcnt,0.0);
+   initialiser_tab_double(lb,colcnt,0.0);
+   initialiser_tab_double(ub,colcnt,0.0);
+   initialiser_tab_double(rmatval,(n * m),0.0);
+   initialiser_tab_double(rhs,m,1.0);
+   initialiser_tab_int(rmatind,(n * m),0);
+   initialiser_tab_int(rmatbeg,m,0);
+   initialiser_tab_char(ctype,colcnt,'B');
+   initialiser_tab_char(sense,m,'E');
+  //printf("index\n");
+  for (int i = 0; i < n; i++) {
+    for (int j = 0; j < m; j++) {
+     // capacite d'affectation entre i et j
+     //printf("%d\t",varindex(i,j,m));
+     obj[varindex(i,j,m)]    = C[j][i];
+     lb[varindex (i,j,m)]    = 0;
+     ub[varindex (i,j,m)]    = 1;
+     ctype[varindex (i,j,m)] = 'B';
+   }
+      //le dernier (indicateur) -> ((i+1)*m+i)
+      //printf("\nindex indicator %d\n",((i+1)*m+i) );
+      obj[((i+1)*m+i)]    = F[i];
+      lb[((i+1)*m+i)]    = 0;
+      ub[((i+1)*m+i)]    = 1;
+      ctype[((i+1)*m+i)] = 'B';
    }
 
    status = CPXnewcols (env, lp, colcnt, obj, lb, ub, ctype, NULL);
@@ -404,6 +404,93 @@ int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int
       fprintf (stderr, "Could not add new columns.\n");
       goto TERMINATE;
    }
+
+   free_and_null ((char **)&obj);
+   free_and_null ((char **)&lb);
+   free_and_null ((char **)&ub);
+   free_and_null ((char **)&ctype);
+
+    // Now add the constraints
+
+    //Première contrainte
+
+    //rmatval
+    for (int i = 0; i < (n * m); i++) {
+      rmatval[i] = 1.0;
+    }
+    //rmatind
+    int k = 0;
+    for (int j = 0; j < m; j++) {
+      for (int i = 0; i < n; i++) {
+        rmatind[k] = varindex (i,j,m);
+        k++;
+      }
+    }
+    //rmatbeg
+    for (int j = 0; j < m; j++) {
+      rmatbeg[j] = j * n;
+    }
+    //rhs et sense
+    /*
+    for (int i = 0; i < m; i++) {
+      rhs[i]   = 1.0;
+    }
+    */
+    status = CPXaddrows (env, lp, 0, m, (n * m), rhs, sense, rmatbeg, rmatind, rmatval, NULL, NULL);
+
+    free_and_null ((char **)&rmatind);
+    free_and_null ((char **)&rmatval);
+    free_and_null ((char **)&rmatbeg);
+    free_and_null ((char **)&rhs);
+    free_and_null ((char **)&sense);
+
+    //Deuxieme contrainte
+
+    rmatind = (int * )   malloc (colcnt * sizeof(int));
+    rmatval = (double *) malloc (colcnt * sizeof(double));
+    rhs     = (double *) malloc (n * sizeof(double));
+    rmatbeg = (int    *) malloc (n * sizeof(int));
+    sense   = (char *) malloc (n * sizeof(char));
+    if ( rmatind == NULL ||
+         rmatval == NULL ||
+         rmatbeg == NULL ||
+         sense   == NULL ||
+         rhs     == NULL   ) {
+       fprintf (stderr, "Could not allocate colcnt arrays\n");
+       status = CPXERR_NO_MEMORY;
+       goto TERMINATE;
+    }
+
+    //rmatval
+    k = 0;
+    for (int i = 0; i < n; i++) {
+      for (int j = 0; j < m; j++) {
+        rmatval[k] = D[j];
+        k++;
+      }
+      rmatval[k] = -B[i];
+      k++;
+    }
+    //rmatind
+    k = 0;
+    for (int i = 0; i < n; i++) {
+      for (int j = 0; j < m; j++) {
+        rmatind[k] = varindex (i,j,m);
+        k++;
+      }
+      rmatind[k] = ((i+1)*m+i);
+      k++;
+    }
+    //rmatbeg
+    for (int i = 0; i < n; i++) {
+      rmatbeg[i] = (i * m) +i;
+    }
+    //rhs et sense
+    for (int i = 0; i < n; i++) {
+      rhs[i]   = 0.0;
+      sense[i] = 'L';
+    }
+    status = CPXaddrows (env, lp, 0, n, colcnt, rhs, sense, rmatbeg, rmatind, rmatval, NULL, NULL);
 
 
    TERMINATE:
@@ -413,13 +500,18 @@ int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int
     free_and_null ((char **)&ctype);
     free_and_null ((char **)&rmatind);
     free_and_null ((char **)&rmatval);
+    free_and_null ((char **)&rmatbeg);
+    free_and_null ((char **)&rhs);
+    free_and_null ((char **)&sense);
 
+    printf("\n");
    return (status);
+
 
 }
 
-int varindex (int i, int j){
-   return (2 * j * i + 2 * j);
+int varindex (int i, int j, int m){
+   return (m * i) + i + j;
 }
 void free_and_null (char **ptr){
    if ( *ptr != NULL ) {

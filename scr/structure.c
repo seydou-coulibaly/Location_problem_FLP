@@ -8,6 +8,16 @@ void initialiser_tab_int(int* a,int nb_var,int valeur){
       a[i] = valeur;
     }
   }
+void initialiser_tab_double(double* a,int nb_var,double valeur){
+  for (int i=0; i<nb_var; i++){
+    a[i] = valeur;
+  }
+}
+void initialiser_tab_char(char* a,int nb_var,char valeur){
+  for (int i=0; i<nb_var; i++){
+    a[i] = valeur;
+  }
+}
 void initialiser_matrice(int** a,int nb_cte, int nb_var,int valeur){
     for (int i=0; i<nb_cte; i++){
       for (int j=0; j<nb_var; j++){
