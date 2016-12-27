@@ -15,6 +15,7 @@
 #include <ilcplex/cplex.h>
 #include "structure.h"
 #include "grasp.h"
+#include "duale.h"
 
 /*------------------------------------------------------------
 #  Prototype
@@ -23,8 +24,7 @@
 void liberation (int **X,int n);
 int evaluer_fonction(int **X,int **C,int *F,int *Y,int n,int m);
 int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int n, int m);
-int varindex (int i, int j, int m);
-void free_and_null (char **ptr);
+
 
 /*------------------------------------------------------------
 #  Main
@@ -48,7 +48,7 @@ int main(int argc, char const *argv[]) {
     int *B;
     int *D;
     int borne_primale;
-    int borne_duale;
+    double borne_duale;
     // Ouverture du fichier d'entree/sortie
     //La taille du chemin vaut au plus 250 caractères
     char chemin[250] = "../instances/";
@@ -150,9 +150,12 @@ int main(int argc, char const *argv[]) {
         *  m : le nombre de clients
         *  iteration : le nombre d'iteration grasp
         */
+        double temps_init = clock();
         methodeGrasp(C,X,Y,F,B,D,n,m,iteration);
         borne_primale = evaluer_fonction(X,C,F,Y,n,m);
-        printf(" LA BORNE PRIMALE = %d\n",borne_primale);
+        double temps_final = clock();
+        printf("****************************  Borne Primale  *************************\n");
+        printf(" BORNE PRIMALE = %d\n",borne_primale);
         printf("\n Les sites ouverts\n");
         for (int i = 0; i < n; i++) {
           printf("%d\t",i+1);
@@ -166,19 +169,29 @@ int main(int argc, char const *argv[]) {
           }
         }
         printf("\n");
+        double temps_heuristic;
+        temps_heuristic = (double)(temps_final - temps_init) / CLOCKS_PER_SEC;
+        printf("Temps heuristique = %f\n",temps_heuristic );
 
-        /* Borne Duale : methode exacte
+        /* Borne Duale : Relaxation
         */
+
+        borne_duale =  methodeRelaxation(C,F,B,D,n,m);
+        printf("****************************  Relaxation  *************************\n");
+        printf("BORNE DUALE = %f\n",borne_duale);
+
+        /* methode exacte
+        */
+
 
         /* Declare variables and arrays where we will store the
         optimization results including the status, objective value,
         and variable values.
          */
-
+         printf("****************************  METAHODE EXACTE  *************************\n");
         int       solstat;
         double    objval;
-        int       colcnt = 0;
-        double    *x = NULL;
+
         int status;
         CPXENVptr env = CPXopenCPLEX (&status); // ouvre un environnement Cplex
 
@@ -228,15 +241,44 @@ int main(int argc, char const *argv[]) {
           fprintf (stderr, "Failed to optimize MIP.\n");
           goto TERMINATE;
         }
-        solstat = CPXgetstat (env, lp);
-        // Write solution status, objective and solution vector to the screen.
-        printf ("\nSolution status = %d\n", solstat);
-        status = CPXgetobjval (env, lp, &objval);
+        double *vector = NULL;
+        vector         = (double *) malloc ((n+(n * m)) * sizeof(double));
+        if ( vector    == NULL) {
+          fprintf (stderr, "Could not allocate colcnt arrays\n");
+          status = CPXERR_NO_MEMORY;
+          goto TERMINATE;
+        }
+
+        status = CPXsolution (env, lp, &solstat, &objval, vector, NULL, NULL, NULL);
+        if ( status ) {
+          fprintf (stderr, "Failed to obtain solution.\n");
+          goto TERMINATE;
+        }
+
+        //solstat = CPXgetstat (env, lp);
+        // Write solution status, objective and solution vector to the screen
+        //status = CPXgetobjval (env, lp, &objval);
+        /*
         if ( status ) {
           fprintf (stderr,"No MIP objective value available.  Exiting...\n");
           goto TERMINATE;
         }
+        */
+        printf ("\nSolution status = %d\n", solstat);
         printf ("Solution value (min cout) = %f\n\n", objval);
+
+        //Affichage element de vector
+        for (int i = 0; i < n; i++) {
+          for (int j = 0; j < m; j++) {
+            X[i][j] = (int ) vector[varindex(i,j,m)];
+          }
+          Y[i] = (int) vector[((i+1)*m+i)];
+        }
+
+        free_and_null ((char **)&vector);
+
+
+
 
         TERMINATE:
           //libration de tous les allocations
@@ -261,8 +303,6 @@ int main(int argc, char const *argv[]) {
           /**
           * Branch and bound algorithme
           */
-
-          borne_duale = objval;
           //branch_and_bound(X,Y,F,C,B,D,borne_duale,borne_primale)
 
 
@@ -508,14 +548,4 @@ int buildmodel (CPXENVptr env, CPXLPptr lp, int **C, int *F, int *D, int *B, int
    return (status);
 
 
-}
-
-int varindex (int i, int j, int m){
-   return (m * i) + i + j;
-}
-void free_and_null (char **ptr){
-   if ( *ptr != NULL ) {
-      free (*ptr);
-      *ptr = NULL;
-   }
 }

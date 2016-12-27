@@ -1,0 +1,42 @@
+
+        *******************************************************
+                EXECUTION DU PROJET IP FLP
+        *******************************************************
+
+        ===============================
+        Les différents dossiers :
+        ===============================
+        /instances                                      contient les instances du problème
+        /optimal                                        contient un fichier contenant les valeurs à l'optimum
+        /probleme lineaire                              contient les modèles en format lp des instances
+        /projet                                         contient les documents pdf du projet
+        /scr                                            contient les fichiers sources
+
+        =================================
+        Pour compiler le programme, tapez
+        =================================
+            make
+            puis entrez ->
+
+        =================================
+        Pour executer le programme, tapez
+        =================================
+            ./executable p1
+
+          avec p1.txt le fichier de test ou l'instance, figurant dans le dossier instances
+
+
+Remarque : l'executable sur l'instance p1, appelle ou execute des algorithmes produisant la borne primale
+            suivit de la borne duale et de la méthode exacte (CPLEX)
+
+        ===========================================
+        Pour supprimer l'executable produit, tapez
+        ===========================================
+          make .PHONY
+
+
+Remarque : C'est également possible de lancer l'execution de plusieurs instances, pour cela tapez
+      ./executable p1 p2
+
+
+Remarque : Dans /src, il existe un fichier SSCFLP dans laquelle est décrit le modèle de l'instance en cours d'execution
